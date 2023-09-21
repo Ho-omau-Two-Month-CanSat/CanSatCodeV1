@@ -36,6 +36,9 @@ float previousHeight = 0.0;
 float gyro_R = 0.0;
 float gyro_P = 0.0;
 float gyro_Y = 0.0;
+float x = 0.0;
+float y = 0.0;
+float z = 0.0;
 
 // Servo control variables
 const int servo1MinAngle = 0;
@@ -101,6 +104,28 @@ void loop() {
 
     // Store current height for comparison
     previousHeight = height;  
+
+    // Print the height
+    Serial.print("Height: ");
+    Serial.print(height);
+    Serial.println(" meters");
+
+    // Print the Orientation
+    Serial.print("Orientation:   ");
+    Serial.print(gyro_R);
+    Serial.print('\t');
+    Serial.print(gyro_P);
+    Serial.print('\t');
+    Serial.println(gyro_Y);
+
+    //Print the acceleration
+    Serial.print("Acceleration:   ");
+    Serial.print(x);
+    Serial.print('\t');
+    Serial.print(y);
+    Serial.print('\t');
+    Serial.println(z);
+  
   }
 
   // Update state based on height and sensor data
@@ -120,27 +145,19 @@ void readSensorData() {
   pressure = bmp.readPressure() / 100.0F;  // Convert to hPa
   temperature = bmp.readTemperature();
 
-  // Read LSM6DSOX sensor data
-  if (lsm.accelerationAvailable()) {
-    lsm.readAcceleration(gyro_R, gyro_P, gyro_Y);
-
-    Serial.print(gyro_R);
-    Serial.print('\t');
-    Serial.print(gyro_P);
-    Serial.print('\t');
-    Serial.println(gyro_Y);
+  // Read LSM6DSOX sensor data =- gyro
+  if (lsm.gyroscopeAvailable()) {
+    lsm.readGyroscope(gyro_R, gyro_P, gyro_Y);
   }
 
-
+  // Read LSM6DSOX sensor data - acceleration
+  if (lsm.accelerationAvailable()) {
+    lsm.readAcceleration(x, y, z);
+  }
 }
 
 void updateState() {
-  // Print the height
-  Serial.print("Height: ");
-  Serial.print(height);
-  Serial.println(" meters");  
-
-  // Update state variables based on height and other conditions
+    // Update state variables based on height and other conditions
   if (height > 0 && abs(height - previousHeight) > 0.5) {
     LAUNCH_READY = false;
     ASCENT = true;
@@ -163,59 +180,88 @@ void updateState() {
 }
 
 void controlMOSFETs() {
+  static unsigned long previousMillis1 = 0;
+  const unsigned long mosfetInterval = 1000; // Timing interval in milliseconds
+
+  // Get the current time
+  unsigned long currentMillis1 = millis();
+
   if (LAUNCH_READY) {
-    // Code to pulse MOSFET connected to GPIO 2 every second
-    digitalWrite(MOSFET_1, HIGH);
-    delay(500);
-    digitalWrite(MOSFET_1, LOW);
-    delay(1500);
+    // Pulse MOSFET connected to GPIO 2 every second
+    if (currentMillis1 - previousMillis1 >= mosfetInterval) {
+      previousMillis1 = currentMillis1;
+      static bool mosfetState = false;
+
+      if (mosfetState) {
+        digitalWrite(MOSFET_1, LOW);
+        mosfetState = false;
+      } else {
+        digitalWrite(MOSFET_1, HIGH);
+        mosfetState = true;
+      }
+    }
   }
 
   if (ASCENT) {
-    // Code to pulse MOSFET connected to GPIO 2 twice every second
-    digitalWrite(MOSFET_1, HIGH);
-    delay(250);
-    digitalWrite(MOSFET_1, LOW);
-    delay(250);
-    digitalWrite(MOSFET_1, HIGH);
-    delay(250);
-    digitalWrite(MOSFET_1, LOW);
-    delay(250);
+    // Pulse MOSFET connected to GPIO 2 twice every second
+    if (currentMillis1 - previousMillis1 >= mosfetInterval / 2) {
+      previousMillis1 = currentMillis1;
+      static int pulseCount = 0;
+
+      if (pulseCount < 2) {
+        digitalWrite(MOSFET_1, HIGH);
+        pulseCount++;
+      } else {
+        digitalWrite(MOSFET_1, LOW);
+        pulseCount = 0;
+      }
+    }
   }
 
   if (SEPARATE) {
-    // Code to activate MOSFET connected to GPIO 2
+    // Activate MOSFET connected to GPIO 2
     digitalWrite(MOSFET_1, HIGH);
   }
 
   if (DESCENT) {
-    // Code to make two short but distinct pulses every two seconds on MOSFET connected to GPIO 2
-    digitalWrite(MOSFET_1, HIGH);
-    delay(100);
-    digitalWrite(MOSFET_1, LOW);
-    delay(100);
-    digitalWrite(MOSFET_1, HIGH);
-    delay(100);
-    digitalWrite(MOSFET_1, LOW);
-    delay(1700);
+    // Make two short but distinct pulses every two seconds
+    if (currentMillis1 - previousMillis1 >= mosfetInterval / 2) {
+      previousMillis1 = currentMillis1;
+      static bool mosfetState = false;
+
+      if (mosfetState) {
+        digitalWrite(MOSFET_1, LOW);
+        mosfetState = false;
+      } else {
+        digitalWrite(MOSFET_1, HIGH);
+        mosfetState = true;
+      }
+    }
   }
 
   if (LANDED) {
-    // Code to keep MOSFET connected to GPIO 2 fully on
+    // Keep MOSFET connected to GPIO 2 fully on
     digitalWrite(MOSFET_1, HIGH);
   }
 }
 
+
 void controlServos() {
+  static unsigned long servo1StartTime = 0;
+  static unsigned long servo2StartTime = 0;
+  const unsigned long servoUpdateInterval = 10; // Adjust for servo speed
+
   if (SEPARATE) {
     // Give power to MOSFET_2 for servo1
     digitalWrite(MOSFET_2, HIGH);
 
     // Code to rotate servo1 to 150 degrees
     if (servo1Angle < servo1MaxAngle) {
-      servo1Angle++;
-      servo1.write(servo1Angle);
-      delay(10); // Adjust delay for servo speed
+      if (millis() - servo1StartTime >= servoUpdateInterval) {
+        servo1Angle++;
+        servo1.write(servo1Angle);
+        servo1StartTime = millis();
+      }
     }
   } else {
     // Cut off power to MOSFET_2
@@ -228,20 +274,32 @@ void controlServos() {
 
     // Code to rotate servo2 to 270 degrees
     if (servo2Angle < servo2MaxAngle) {
-      servo2Angle++;
-      servo2.write(servo2Angle);
-      delay(10); // Adjust delay for servo speed
+      if (millis() - servo2StartTime >= servoUpdateInterval) {
+        servo2Angle++;
+        servo2.write(servo2Angle);
+        servo2StartTime = millis();
+      }
     }
-    delay(1000); // Wait after rotation
-
-    // Return servo2 to 0 degrees
-    while (servo2Angle > servo2MinAngle) {
-      servo2Angle--;
-      servo2.write(servo2Angle);
-      delay(10); // Adjust delay for servo speed
+    
+    if (servo2Angle >= servo2MaxAngle) {
+      // Wait for 1 second after rotation
+      static unsigned long rotationCompleteTime = 0;
+      if (millis() - rotationCompleteTime >= 1000) {
+        // Return servo2 to 0 degrees
+        if (servo2Angle > servo2MinAngle) {
+          if (millis() - servo2StartTime >= servoUpdateInterval) {
+            servo2Angle--;
+            servo2.write(servo2Angle);
+            servo2StartTime = millis();
+          }
+        }
+      } else {
+        // Keep servo2 powered during the 1-second delay
+        digitalWrite(MOSFET_3, HIGH);
+      }
+    } else {
+      // Cut off power to MOSFET_3
+      digitalWrite(MOSFET_3, LOW);
     }
-
-    // Cut off power to MOSFET_3
-    digitalWrite(MOSFET_3, LOW);
   }
 }
