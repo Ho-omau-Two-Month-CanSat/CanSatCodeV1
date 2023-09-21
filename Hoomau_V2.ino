@@ -45,6 +45,10 @@ const int servo2MaxAngle = 270;
 int servo1Angle = servo1MinAngle;
 int servo2Angle = servo2MinAngle;
 
+//non-blocking timing
+unsigned long previousMillis = 0;
+const unsigned long heightUpdateInterval = 100;  // Update height every 100 milliseconds
+
 void setup() {
   // Initialize serial communication
   Serial.begin(9600);
@@ -63,8 +67,12 @@ void setup() {
     while (1);
   }
 
-  //lsm6dsox.setAccelRange(LSM6DSOX_ACCEL_RANGE_2_G);
-  //lsm6dsox.setGyroRange(LSM6DSOX_GYRO_RANGE_250_DPS);
+  Serial.print("Accelerometer sample rate = ");
+  Serial.print(lsm.accelerationSampleRate());
+  Serial.println(" Hz");
+  Serial.println();
+  Serial.println("Acceleration in g's");
+  Serial.println("X\tY\tZ");
 
   // Attach servos
   servo1.attach(SERVO_PIN1);
@@ -77,8 +85,23 @@ void setup() {
 }
 
 void loop() {
+  // Get the current time
+  unsigned long currentMillis = millis();
+
   // Read sensor data
   readSensorData();
+
+  // Update height data at a higher rate
+  if (currentMillis - previousMillis >= heightUpdateInterval) {
+    previousMillis = currentMillis;
+
+    // Update height data
+    // Calculate height based on pressure data (you may need to adjust this)
+    height = (1.0 - pow((pressure / 1013.25), 0.1903)) * 44330.0; // Height Algorithm  
+
+    // Store current height for comparison
+    previousHeight = height;  
+  }
 
   // Update state based on height and sensor data
   updateState();
@@ -87,7 +110,7 @@ void loop() {
   controlMOSFETs();
  
   // Control servo motors based on state
-  controlServos();
+  controlServos(); 
 
   // Other code based on states can be added here
 }
@@ -98,19 +121,20 @@ void readSensorData() {
   temperature = bmp.readTemperature();
 
   // Read LSM6DSOX sensor data
-  sensors_event_t accel, gyro;
-  //lsm.getEvent(&accel);
-  //lsm.getEvent(&gyro);
+  if (lsm.accelerationAvailable()) {
+    lsm.readAcceleration(gyro_R, gyro_P, gyro_Y);
 
-  //gyro_R = gyro.gyro.x;
-  //gyro_P = gyro.gyro.y;
-  //gyro_Y = gyro.gyro.z;
+    Serial.print(gyro_R);
+    Serial.print('\t');
+    Serial.print(gyro_P);
+    Serial.print('\t');
+    Serial.println(gyro_Y);
+  }
+
+
 }
 
 void updateState() {
-  // Calculate height based on pressure data (you may need to adjust this)
-  height = (1.0 - pow((pressure / 1013.25), 0.1903)) * 44330.0; // Height Algorithm
-
   // Print the height
   Serial.print("Height: ");
   Serial.print(height);
@@ -136,9 +160,6 @@ void updateState() {
     DESCENT = false;
     LANDED = true;
   }
-
-  // Store current height for comparison
-  previousHeight = height;
 }
 
 void controlMOSFETs() {
