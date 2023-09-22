@@ -6,6 +6,8 @@
 // Define pins for sensors and devices
 #define OPENLOG_RX 0
 #define OPENLOG_TX 1
+#define OPENLOG_BAUD_RATE 9600 // Adjust the baud rate to match OpenLog's configuration
+#define XBEE_BAUD_RATE 9600
 #define XBEE_RX 8
 #define XBEE_TX 9
 #define SERVO_PIN1 16
@@ -50,11 +52,23 @@ int servo2Angle = servo2MinAngle;
 
 //non-blocking timing
 unsigned long previousMillis = 0;
+unsigned long previousTelemetryMillis = 0;
 const unsigned long heightUpdateInterval = 100;  // Update height every 100 milliseconds
+const unsigned long telemetryInterval = 1000; // 1 Hz (1 second interval)
+
+// CSV data variables
+unsigned int packetCount = 0; // Packet count
+char swState[20] = "LAUNCH_READY"; // Software state
+char plState = 'N'; // Payload state
+float voltage = 0.0; // Voltage measurement
+char csvBuffer[128]; // CSV data buffer
 
 void setup() {
   // Initialize serial communication
-  Serial.begin(9600);
+  Serial.begin(OPENLOG_BAUD_RATE);
+
+  // Initialize XBee communication
+  Serial1.begin(XBEE_BAUD_RATE);
 
   // Initialize I2C communication
   Wire.begin();
@@ -73,9 +87,6 @@ void setup() {
   Serial.print("Accelerometer sample rate = ");
   Serial.print(lsm.accelerationSampleRate());
   Serial.println(" Hz");
-  Serial.println();
-  Serial.println("Acceleration in g's");
-  Serial.println("X\tY\tZ");
 
   // Attach servos
   servo1.attach(SERVO_PIN1);
@@ -91,10 +102,7 @@ void loop() {
   // Get the current time
   unsigned long currentMillis = millis();
 
-  // Read sensor data
-  readSensorData();
-
-  // Update height data at a higher rate
+  // Update height data at 10Hz
   if (currentMillis - previousMillis >= heightUpdateInterval) {
     previousMillis = currentMillis;
 
@@ -105,29 +113,21 @@ void loop() {
     // Store current height for comparison
     previousHeight = height;  
 
-    // Print the height
-    Serial.print("Height: ");
-    Serial.print(height);
-    Serial.println(" meters");
-
-    // Print the Orientation
-    Serial.print("Orientation:   ");
-    Serial.print(gyro_R);
-    Serial.print('\t');
-    Serial.print(gyro_P);
-    Serial.print('\t');
-    Serial.println(gyro_Y);
-
-    //Print the acceleration
-    Serial.print("Acceleration:   ");
-    Serial.print(x);
-    Serial.print('\t');
-    Serial.print(y);
-    Serial.print('\t');
-    Serial.println(z);
-  
+    // Read sensor data
+    readSensorData();
   }
 
+  
+  // Get the current time
+  unsigned long currentMillis3 = millis();
+
+  // Check if it's time to log telemetry data
+  if (currentMillis3 - previousTelemetryMillis >= telemetryInterval) {
+    previousTelemetryMillis = currentMillis3;
+
+    // Log telemetry data here
+    logTelemetryData();
+  }
   // Update state based on height and sensor data
   updateState();
 
@@ -154,6 +154,7 @@ void readSensorData() {
   if (lsm.accelerationAvailable()) {
     lsm.readAcceleration(x, y, z);
   }
+
 }
 
 void updateState() {
@@ -302,4 +303,31 @@ void controlServos() {
       digitalWrite(MOSFET_3, LOW);
     }
   }
+}
+
+void logTelemetryData() {
+  // Increment packet count
+  packetCount++;
+
+  // Get current time in format hh:mm:ss.ss
+  unsigned long currentMillis4 = millis();
+  unsigned int seconds = currentMillis4 / 1000;
+  unsigned int minutes = seconds / 60;
+  unsigned int hours = minutes / 60;
+  unsigned int milliseconds = currentMillis4 % 1000;
+  
+  char missionTime[12];
+  sprintf(missionTime, "%02d:%02d:%02d.%03d", hours % 100, minutes % 60, seconds % 60, milliseconds);
+
+  // Format and log telemetry data
+  sprintf(csvBuffer, "1008,%s,%u,%s,%c,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f\n", 
+          missionTime, packetCount, swState, plState, height, temperature, voltage,
+          gyro_R, gyro_P, gyro_Y, x, y, z);
+
+
+  // Log to OpenLog (Assuming OpenLog is connected to Serial)
+  Serial.println(csvBuffer);
+
+  // Log to XBee (Assuming XBee is connected to Serial)
+  Serial1.println(csvBuffer);
 }
