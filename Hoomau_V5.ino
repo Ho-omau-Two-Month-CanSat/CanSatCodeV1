@@ -3,6 +3,7 @@
 #include <Adafruit_LSM6DSOX.h>
 #include <Servo.h>
 
+
 // Define pins for sensors and devices
 #define OPENLOG_RX 0
 #define OPENLOG_TX 1
@@ -12,6 +13,7 @@
 #define XBEE_TX 9
 #define SERVO_PIN1 16
 #define SERVO_PIN2 17
+#define adcPin 26
 #define FEEDBACK_PIN 27
 #define MOSFET_1 2
 #define MOSFET_2 18
@@ -63,6 +65,12 @@ char plState = 'N'; // Payload state
 float voltage = 0.0; // Voltage measurement
 char csvBuffer[128]; // CSV data buffer
 
+// Voltage
+const float referenceVoltage = 3.3; // Reference voltage (V) of the ADC
+const float r1 = 6800.0; // Resistance (ohms) of the 6.8 kilo Ohm resistor
+const float r2 = 3300.0; // Resistance (ohms) of the 3.3 kilo Ohm resistor
+
+
 void setup() {
   // Initialize serial communication
   Serial.begin(OPENLOG_BAUD_RATE);
@@ -96,6 +104,9 @@ void setup() {
   pinMode(MOSFET_1, OUTPUT);
   pinMode(MOSFET_2, OUTPUT);
   pinMode(MOSFET_3, OUTPUT);
+
+  // Set up ADC
+  analogReadResolution(12); // 12-bit ADC resolution
 }
 
 void loop() {
@@ -128,6 +139,10 @@ void loop() {
     // Log telemetry data here
     logTelemetryData();
   }
+
+  // Get ground station data
+  XBeeRecieve();
+  
   // Update state based on height and sensor data
   updateState();
 
@@ -154,6 +169,15 @@ void readSensorData() {
   if (lsm.accelerationAvailable()) {
     lsm.readAcceleration(x, y, z);
   }
+
+  // Read the raw ADC value
+  int rawValue = analogRead(adcPin);
+
+  // Calculate the voltage across the 3.3 kilo Ohm resistor
+  float voltageAcrossR2 = (referenceVoltage * rawValue) / 4095.0;
+
+  // Calculate the actual battery voltage using the voltage divider formula
+  voltage = voltageAcrossR2 * ((r1 + r2) / r2);
 
 }
 
@@ -330,4 +354,40 @@ void logTelemetryData() {
 
   // Log to XBee (Assuming XBee is connected to Serial)
   Serial1.println(csvBuffer);
+}
+
+void XBeeRecieve() {
+  unsigned long currentMillis6 = millis();
+  unsigned long previousMillis6 = 0;
+  unsigned long interval = 1000; // Interval for checking XBee data (1000 milliseconds)
+  bool packetReceived = false;
+
+  // Check for incoming data from the XBee every 1000 milliseconds
+  if (currentMillis6 - previousMillis6 >= interval) {
+    previousMillis6 = currentMillis6;
+
+    // Check if there's data available from the XBee
+    if (Serial1.available()) {
+      // Read the incoming data
+      char receivedChar = Serial1.read();
+      
+      // Process the received data here
+      // You can add your own code to handle the received data
+      
+      // Set the packetReceived flag to true
+      packetReceived = true;
+    } else {
+      // No data received within the interval
+      packetReceived = false;
+    }
+
+      // Print whether or not a packet has been received
+    if (packetReceived) {
+      //Serial.println("Packet Received");
+    }   else {
+      //Serial.println("No Packet Received");
+    }
+    
+  }
+
 }
