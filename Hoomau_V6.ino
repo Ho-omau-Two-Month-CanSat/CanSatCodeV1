@@ -73,10 +73,17 @@ const float r2 = 3300.0; // Resistance (ohms) of the 3.3 kilo Ohm resistor
 
 void setup() {
   // Initialize serial communication
-  Serial.begin(OPENLOG_BAUD_RATE);
+  Serial.begin(9600);
+
+  // Initialize OpenLog communication
+  Serial1.setTX(OPENLOG_RX);
+  Serial1.setRX(OPENLOG_TX);
+  Serial1.begin(OPENLOG_BAUD_RATE);
 
   // Initialize XBee communication
-  Serial1.begin(XBEE_BAUD_RATE);
+  Serial2.setTX(XBEE_RX);
+  Serial2.setRX(XBEE_TX);
+  Serial2.begin(XBEE_BAUD_RATE);
 
   // Initialize I2C communication
   Wire.begin();
@@ -138,10 +145,10 @@ void loop() {
 
     // Log telemetry data here
     logTelemetryData();
-  }
 
-  // Get ground station data
-  XBeeRecieve();
+    // Get ground station data
+    XBeeRecieve();
+  }
   
   // Update state based on height and sensor data
   updateState();
@@ -349,27 +356,27 @@ void logTelemetryData() {
           gyro_R, gyro_P, gyro_Y, x, y, z);
 
 
-  // Log to OpenLog (Assuming OpenLog is connected to Serial)
-  Serial.println(csvBuffer);
-
-  // Log to XBee (Assuming XBee is connected to Serial)
+  // Log to OpenLog
   Serial1.println(csvBuffer);
+
+  // Log to XBee
+  Serial2.println(csvBuffer);
 }
 
 void XBeeRecieve() {
   unsigned long currentMillis6 = millis();
   unsigned long previousMillis6 = 0;
-  unsigned long interval = 1000; // Interval for checking XBee data (1000 milliseconds)
+  unsigned long interval5 = 1000; // Interval for checking XBee data (1000 milliseconds)
   bool packetReceived = false;
 
   // Check for incoming data from the XBee every 1000 milliseconds
-  if (currentMillis6 - previousMillis6 >= interval) {
+  if (currentMillis6 - previousMillis6 >= interval5) {
     previousMillis6 = currentMillis6;
 
     // Check if there's data available from the XBee
-    if (Serial1.available()) {
+    if (Serial2.available() > 0) {
       // Read the incoming data
-      char receivedChar = Serial1.read();
+      char receivedChar = Serial2.read();
       
       // Process the received data here
       // You can add your own code to handle the received data
@@ -383,9 +390,9 @@ void XBeeRecieve() {
 
       // Print whether or not a packet has been received
     if (packetReceived) {
-      //Serial.println("Packet Received");
+      Serial.println("Packet Received");
     }   else {
-      //Serial.println("No Packet Received");
+      Serial.println("No Packet Received");
     }
     
   }
