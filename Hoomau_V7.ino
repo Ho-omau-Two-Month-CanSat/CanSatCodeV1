@@ -19,6 +19,11 @@
 #define MOSFET_2 18
 #define MOSFET_3 19
 
+#define NUM_GROUND_SAMPLES 10
+#define NUM_OVERSAMPLES 10
+#define TELEMETRY_RATE_HZ 10
+#define SENSOR_RATE_HZ 100
+
 // Define state variables
 boolean LAUNCH_READY = true;
 boolean ASCENT = false;
@@ -43,6 +48,12 @@ float gyro_Y = 0.0;
 float x = 0.0;
 float y = 0.0;
 float z = 0.0;
+float heightAGL = 0.0;
+float groundHeight = 0.0;
+float heightSamples[NUM_GROUND_SAMPLES];
+int sampleIndex = 0;
+float heightAGLOversampled = 0.0;
+float heightOversampled = 0.0;
 
 // Servo control variables
 const int servo1MinAngle = 0;
@@ -55,8 +66,8 @@ int servo2Angle = servo2MinAngle;
 //non-blocking timing
 unsigned long previousMillis = 0;
 unsigned long previousTelemetryMillis = 0;
-const unsigned long heightUpdateInterval = 100;  // Update height every 100 milliseconds
-const unsigned long telemetryInterval = 1000; // 1 Hz (1 second interval)
+const unsigned long sensorInterval = 1000 / SENSOR_RATE_HZ;  // Update height every 10 milliseconds
+const unsigned long telemetryInterval = 1000 / TELEMETRY_RATE_HZ; // 10 Hz (0.1 second interval)
 
 // CSV data variables
 unsigned int packetCount = 0; // Packet count
@@ -120,8 +131,8 @@ void loop() {
   // Get the current time
   unsigned long currentMillis = millis();
 
-  // Update height data at 10Hz
-  if (currentMillis - previousMillis >= heightUpdateInterval) {
+  // Read data at 100Hz
+  if (currentMillis - previousMillis >= sensorInterval) {
     previousMillis = currentMillis;
 
     // Update height data
@@ -133,6 +144,43 @@ void loop() {
 
     // Read sensor data
     readSensorData();
+
+    // Calculate heightAGL using the ground point based on the first ten samples
+    if (sampleIndex < NUM_GROUND_SAMPLES) {
+      // Collect the first ten height samples
+      heightSamples[sampleIndex] = height;
+      sampleIndex++;
+    } else if (sampleIndex == NUM_GROUND_SAMPLES) {
+      // Calculate the average ground height from the first ten samples
+      for (int i = 0; i < NUM_GROUND_SAMPLES; i++) {
+        groundHeight += heightSamples[i];
+      }
+      groundHeight /= NUM_GROUND_SAMPLES;
+      sampleIndex++; // Increment to prevent recalculation
+      
+      // Now, heightAGL can be calculated as the difference between current height and groundHeight
+      heightAGL = height - groundHeight;
+    } else {
+      // Calculate heightAGL normally using the ground point
+      heightAGL = height - groundHeight;
+    }
+    // Oversample the height and heightAGL
+    float heightSum = 0.0;
+    float heightAGLSum = 0.0;
+
+    for (int i = 0; i < NUM_OVERSAMPLES; i++) {
+      // Read sensor data and update height as before
+      // Accumulate height and heightAGL
+      heightSum += height;
+      heightAGLSum += heightAGL;
+      // Delay briefly between samples (adjust for your desired oversampling rate)
+      delay(10); // Adjust the delay for your desired oversampling rate
+    }
+
+    // Calculate the average oversampled values
+    heightOversampled = heightSum / NUM_OVERSAMPLES;
+    heightAGLOversampled = heightAGLSum / NUM_OVERSAMPLES;
+
   }
 
   
@@ -351,9 +399,9 @@ void logTelemetryData() {
   sprintf(missionTime, "%02d:%02d:%02d.%03d", hours % 100, minutes % 60, seconds % 60, milliseconds);
 
   // Format and log telemetry data
-  sprintf(csvBuffer, "1008,%s,%u,%s,%c,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f\n", 
-          missionTime, packetCount, swState, plState, height, temperature, voltage,
-          gyro_R, gyro_P, gyro_Y, x, y, z);
+  sprintf(csvBuffer, "1008,%s,%u,%s,%c,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f\n", 
+          missionTime, packetCount, swState, plState, heightAGLOversampled, temperature, voltage,
+          gyro_R, gyro_P, gyro_Y, x, y, z, heightOversampled);
 
 
   // Log to OpenLog
