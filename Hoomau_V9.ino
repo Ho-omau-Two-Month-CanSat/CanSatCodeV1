@@ -6,8 +6,8 @@
 
 
 // Define pins for sensors and devices
-#define OPENLOG_RX 0
-#define OPENLOG_TX 1
+#define OPENLOG_RX 12
+#define OPENLOG_TX 13
 #define OPENLOG_BAUD_RATE 9600 // Adjust the baud rate to match OpenLog's configuration
 #define XBEE_BAUD_RATE 9600
 #define XBEE_RX 8
@@ -16,7 +16,8 @@
 #define SERVO_PIN2 17
 #define adcPin 26
 #define FEEDBACK_PIN 27
-#define MOSFET_1 2
+#define MOSFET 2
+#define MOSFET_1 3
 #define MOSFET_2 18
 #define MOSFET_3 19
 
@@ -33,6 +34,10 @@ boolean ASCENT = false;
 boolean SEPARATE = false;
 boolean DESCENT = false;
 boolean LANDED = false;
+
+// Define servo variables
+boolean turned1 = true;
+boolean turned2 = true;
 
 // Initialize sensors
 Adafruit_BMP3XX bmp;
@@ -64,14 +69,6 @@ static unsigned long servo1StartTime = 0;
 static unsigned long servo2StartTime = 0;
 const unsigned long servoUpdateInterval = 10; // Adjust for servo speed
 
-// Servo control variables
-const int servo1MinAngle = 0;
-const int servo1MaxAngle = 150;
-const int servo2MinAngle = 0;
-const int servo2MaxAngle = 270;
-int servo1Angle = servo1MinAngle;
-int servo2Angle = servo2MinAngle;
-
 //non-blocking timing
 unsigned long previousMillis = 0;
 unsigned long currentMillis4 = millis();
@@ -88,13 +85,14 @@ char csvBuffer[128]; // CSV data buffer
 
 // Voltage
 const float referenceVoltage = 3.3; // Reference voltage (V) of the ADC
-const float r1 = 6800.0; // Resistance (ohms) of the 6.8 kilo Ohm resistor
-const float r2 = 3300.0; // Resistance (ohms) of the 3.3 kilo Ohm resistor
+const float r1 = 5800.0; // Resistance (ohms) of the 5.8 kilo Ohm resistor
+const float r2 = 5300.0; // Resistance (ohms) of the 5.8 kilo Ohm resistor
 
 
 void setup() {
   // Initialize serial communication
   Serial.begin(9600);
+  Serial.println("Hello");
 
   // Initialize OpenLog communication
   Serial1.setTX(OPENLOG_RX);
@@ -121,8 +119,8 @@ void setup() {
   }
 
   bmp.setTemperatureOversampling(BMP3_OVERSAMPLING_8X);
-  bmp.setPressureOversampling(BMP3_OVERSAMPLING_4X);
-  bmp.setIIRFilterCoeff(BMP3_IIR_FILTER_COEFF_3);
+  bmp.setPressureOversampling(BMP3_OVERSAMPLING_8X);
+  bmp.setIIRFilterCoeff(BMP3_IIR_FILTER_COEFF_7);
   bmp.setOutputDataRate(BMP3_ODR_50_HZ);
 
   Serial.print("Accelerometer sample rate = ");
@@ -134,6 +132,7 @@ void setup() {
   servo2.attach(SERVO_PIN2);
 
   // Set up MOSFET pins as outputs
+  pinMode(MOSFET, OUTPUT);
   pinMode(MOSFET_1, OUTPUT);
   pinMode(MOSFET_2, OUTPUT);
   pinMode(MOSFET_3, OUTPUT);
@@ -266,6 +265,7 @@ void updateState() {
     SEPARATE = false;
     DESCENT = true;
     strcpy(swState, "DESCENT");
+    plState = 'R';
   }
 
   if (DESCENT && heightAGL < 10 && abs(height - previousHeight) < 0.2) {
@@ -289,9 +289,11 @@ void controlMOSFETs() {
       static bool mosfetState = false;
 
       if (mosfetState) {
+        digitalWrite(MOSFET, LOW);
         digitalWrite(MOSFET_1, LOW);
         mosfetState = false;
       } else {
+        digitalWrite(MOSFET, HIGH);
         digitalWrite(MOSFET_1, HIGH);
         mosfetState = true;
       }
@@ -305,10 +307,12 @@ void controlMOSFETs() {
       static int pulseCount = 0;
 
       if (pulseCount < 2) {
-        digitalWrite(MOSFET_1, HIGH);
+        digitalWrite(MOSFET, LOW);
+        digitalWrite(MOSFET_1, LOW);
         pulseCount++;
       } else {
-        digitalWrite(MOSFET_1, LOW);
+        digitalWrite(MOSFET, HIGH);
+        digitalWrite(MOSFET_1, HIGH);
         pulseCount = 0;
       }
     }
@@ -316,7 +320,8 @@ void controlMOSFETs() {
 
   if (SEPARATE) {
     // Activate MOSFET connected to GPIO 2
-    digitalWrite(MOSFET_1, HIGH);
+    digitalWrite(MOSFET, LOW);
+    digitalWrite(MOSFET_1, LOW);
   }
 
   if (DESCENT) {
@@ -326,9 +331,11 @@ void controlMOSFETs() {
       static bool mosfetState = false;
 
       if (mosfetState) {
+        digitalWrite(MOSFET, LOW);
         digitalWrite(MOSFET_1, LOW);
         mosfetState = false;
       } else {
+        digitalWrite(MOSFET, HIGH);
         digitalWrite(MOSFET_1, HIGH);
         mosfetState = true;
       }
@@ -337,7 +344,8 @@ void controlMOSFETs() {
 
   if (LANDED) {
     // Keep MOSFET connected to GPIO 2 fully on
-    digitalWrite(MOSFET_1, HIGH);
+    digitalWrite(MOSFET, LOW);
+    digitalWrite(MOSFET_1, LOW);
   }
 }
 
@@ -348,55 +356,24 @@ void controlServos() {
   if (SEPARATE) {
     // Give power to MOSFET_2 for servo1
     digitalWrite(MOSFET_2, HIGH);
-
-    // Code to rotate servo1 to 150 degrees
-    if (servo1Angle < servo1MaxAngle) {
-      if (millis() - servo1StartTime >= servoUpdateInterval) {
-        servo1Angle++;
-        servo1.write(servo1Angle);
-        servo1StartTime = millis();
-      }
-    }
-  } else {
-    // Cut off power to MOSFET_2
+    servo1.write(150);
+    turned1 = false;
+    delay(500);
+    servo1.detach();
     digitalWrite(MOSFET_2, LOW);
   }
 
-  if (DESCENT && height <= 250) {
+  if (DESCENT && heightAGL <= 250) {
     // Give power to MOSFET_3 for servo2
     digitalWrite(MOSFET_3, HIGH);
-
-    // Code to rotate servo2 to 270 degrees
-    if (servo2Angle < servo2MaxAngle) {
-      if (millis() - servo2StartTime >= servoUpdateInterval) {
-        servo2Angle++;
-        servo2.write(servo2Angle);
-        servo2StartTime = millis();
-      }
+    servo2.write(180);
+    turned2 = false;
+    delay(500);
+    servo2.detach();
+    digitalWrite(MOSFET_3, LOW);
     }
-    
-    if (servo2Angle >= servo2MaxAngle) {
-      // Wait for 1 second after rotation
-      static unsigned long rotationCompleteTime = 0;
-      if (millis() - rotationCompleteTime >= 1000) {
-        // Return servo2 to 0 degrees
-        if (servo2Angle > servo2MinAngle) {
-          if (millis() - servo2StartTime >= servoUpdateInterval) {
-            servo2Angle--;
-            servo2.write(servo2Angle);
-            servo2StartTime = millis();
-          }
-        }
-      } else {
-        // Keep servo2 powered during the 1-second delay
-        digitalWrite(MOSFET_3, HIGH);
-      }
-    } else {
-      // Cut off power to MOSFET_3
-      digitalWrite(MOSFET_3, LOW);
-    }
-  }
 }
+
 
 void logTelemetryData() {
   // Increment packet count
@@ -447,7 +424,13 @@ void XBeeRecieve() {
       // Check if the received character is 'r'
       if (receivedChar == 'r') {
         // Set the state back SEPARATE
+        boolean LAUNCH_READY = false;
+        boolean ASCENT = false;
+        boolean DESCENT = false;
+        boolean LANDED = false;
+        delay(50);
         SEPARATE = true;
+        strcpy(swState, "SEPARATE");
       }
       if (receivedChar == 'z') {
         // Reset ground level
@@ -455,43 +438,28 @@ void XBeeRecieve() {
       }   
       if (receivedChar == 'l') {
         // Reset to launch ready
-        LAUNCH_READY = true;
+        boolean ASCENT = false;
+        boolean SEPARATE = false;
+        boolean DESCENT = false;
+        boolean LANDED = false;
+        delay(50);
+        boolean LAUNCH_READY = true;
+        strcpy(swState, "LAUNCH_READY");
       }
       if (receivedChar == 'p') {
         // Release parachute manually
 
         // Give power to MOSFET_3 for servo2
         digitalWrite(MOSFET_3, HIGH);
-
-        // Code to rotate servo2 to 270 degrees
-        if (servo2Angle < servo2MaxAngle) {
-          if (millis() - servo2StartTime >= servoUpdateInterval) {
-            servo2Angle++;
-            servo2.write(servo2Angle);
-            servo2StartTime = millis();
-          }
-        }
-        
-        if (servo2Angle >= servo2MaxAngle) {
-          // Wait for 1 second after rotation
-          static unsigned long rotationCompleteTime = 0;
-          if (millis() - rotationCompleteTime >= 1000) {
-            // Return servo2 to 0 degrees
-            if (servo2Angle > servo2MinAngle) {
-              if (millis() - servo2StartTime >= servoUpdateInterval) {
-                servo2Angle--;
-                servo2.write(servo2Angle);
-                servo2StartTime = millis();
-              }
-            }
-          } else {
-            // Keep servo2 powered during the 1-second delay
-            digitalWrite(MOSFET_3, HIGH);
-          }
-        } else {
-          // Cut off power to MOSFET_3
-          digitalWrite(MOSFET_3, LOW);
-        }
+        servo2.write(180);
+        turned2 = false;
+        delay(500);
+        servo2.detach();
+        digitalWrite(MOSFET_3, LOW);
+      }
+      if (receivedChar == 'a') {
+        servo1.attach(SERVO_PIN1);
+        servo2.attach(SERVO_PIN2);
       }
       
       
@@ -511,7 +479,5 @@ void XBeeRecieve() {
     }   else {
       Serial.println("No Packet Received");
     }
-    
-  }
-
+  }  
 }
