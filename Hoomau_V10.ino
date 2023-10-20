@@ -56,6 +56,7 @@ float gyro_Y = 0.0;
 float x = 0.0;
 float y = 0.0;
 float z = 0.0;
+float velocity = 0.0;
 float heightAGL = 0.0;
 float groundHeight1 = 0.0;
 bool groundHeightSet = false;
@@ -64,6 +65,10 @@ float heightOversampled = 0.0;
 float previousHeightOversampled = 0.0;
 unsigned long oversampleInterval = 10;
 unsigned long previousOversampleMillis = 0;
+float maxSpeed = 0.0;
+double g = 0.0;
+double maxG = 0.0;
+
 
 static unsigned long servo1StartTime = 0;
 static unsigned long servo2StartTime = 0;
@@ -80,8 +85,9 @@ const unsigned long telemetryInterval = 1000 / TELEMETRY_RATE_HZ; // 10 Hz (0.1 
 unsigned int packetCount = 0; // Packet count
 char swState[20] = "LAUNCH_READY"; // Software state
 char plState = 'N'; // Payload state
+char paraState = 'N'; // Parachute state
 float voltage = 0.0; // Voltage measurement
-char csvBuffer[128]; // CSV data buffer
+char csvBuffer[256]; // CSV data buffer
 
 // Voltage
 const float referenceVoltage = 3.3; // Reference voltage (V) of the ADC
@@ -158,6 +164,16 @@ void loop() {
   
     // Calculate heightAGL using the ground point
     float heightAGL = height - groundHeight1;
+    velocity = (height - previousHeight)/0.1;
+    g = sqrt((x*x)+(y*y)+(z*z));
+
+    if (g > maxG) {
+      maxG =  g;
+    }
+
+    if (abs(velocity) > maxSpeed) {
+      maxSpeed = abs(velocity);
+    }
 
     // Set groundHeight on the first sample
     if (!groundHeightSet) {
@@ -249,26 +265,25 @@ void readSensorData() {
 
 void updateState() {
     // Update state variables based on height and other conditions
-  if (heightAGL > 5 && (height - previousHeight) > 2 && groundHeightSet) {
+  if (heightAGL > 5 && (height - previousHeight) > 0.2 && groundHeightSet) {
     LAUNCH_READY = false;
     ASCENT = true;
     strcpy(swState, "ASCENT");
   }
 
-  if (heightAGL >= 300 && ASCENT) {
+  if (heightAGL >= 500 && ASCENT) {
     ASCENT = false;
     SEPARATE = true;
     strcpy(swState, "SEPARATE");
   }
 
-  if (SEPARATE && (height - previousHeight) < -5) {
+  if (SEPARATE && (height - previousHeight) < -1) {
     SEPARATE = false;
     DESCENT = true;
     strcpy(swState, "DESCENT");
-    plState = 'R';
   }
 
-  if (DESCENT && heightAGL < 10 && abs(height - previousHeight) < 0.2) {
+  if (DESCENT && heightAGL < 25 && abs(height - previousHeight) < 0.1) {
     DESCENT = false;
     LANDED = true;
     strcpy(swState, "LANDED");
@@ -291,28 +306,32 @@ void controlMOSFETs() {
       if (mosfetState) {
         digitalWrite(MOSFET, LOW);
         digitalWrite(MOSFET_1, LOW);
+        digitalWrite(25, HIGH);
         mosfetState = false;
       } else {
         digitalWrite(MOSFET, HIGH);
         digitalWrite(MOSFET_1, HIGH);
+        digitalWrite(25, LOW);
         mosfetState = true;
       }
     }
   }
 
   if (ASCENT) {
-    // Pulse MOSFET connected to GPIO 2 twice every second
-    if (currentMillis1 - previousMillis1 >= mosfetInterval / 2) {
+    // Pulse MOSFET connected to GPIO 2 four times every second
+    if (currentMillis1 - previousMillis1 >= mosfetInterval / 4) {
       previousMillis1 = currentMillis1;
       static int pulseCount = 0;
 
       if (pulseCount < 2) {
         digitalWrite(MOSFET, LOW);
         digitalWrite(MOSFET_1, LOW);
+        digitalWrite(25, HIGH);
         pulseCount++;
       } else {
         digitalWrite(MOSFET, HIGH);
         digitalWrite(MOSFET_1, HIGH);
+        digitalWrite(25, LOW);
         pulseCount = 0;
       }
     }
@@ -322,6 +341,7 @@ void controlMOSFETs() {
     // Activate MOSFET connected to GPIO 2
     digitalWrite(MOSFET, LOW);
     digitalWrite(MOSFET_1, LOW);
+    digitalWrite(25, HIGH);
   }
 
   if (DESCENT) {
@@ -333,10 +353,12 @@ void controlMOSFETs() {
       if (mosfetState) {
         digitalWrite(MOSFET, LOW);
         digitalWrite(MOSFET_1, LOW);
+        digitalWrite(25, HIGH);
         mosfetState = false;
       } else {
         digitalWrite(MOSFET, HIGH);
         digitalWrite(MOSFET_1, HIGH);
+        digitalWrite(25, LOW);
         mosfetState = true;
       }
     }
@@ -346,6 +368,7 @@ void controlMOSFETs() {
     // Keep MOSFET connected to GPIO 2 fully on
     digitalWrite(MOSFET, LOW);
     digitalWrite(MOSFET_1, LOW);
+    digitalWrite(25, HIGH);
   }
 }
 
@@ -353,24 +376,24 @@ void controlMOSFETs() {
 void controlServos() {
 
 
-  if (SEPARATE) {
+  if (SEPARATE == true && plState == 'N') {
     // Give power to MOSFET_2 for servo1
     digitalWrite(MOSFET_2, HIGH);
-    servo1.write(150);
-    turned1 = false;
-    delay(500);
+    servo1.write(180);
+    delay(2000);
     servo1.detach();
     digitalWrite(MOSFET_2, LOW);
+    plState = 'R';
   }
 
   if (DESCENT && heightAGL <= 250) {
     // Give power to MOSFET_3 for servo2
     digitalWrite(MOSFET_3, HIGH);
     servo2.write(180);
-    turned2 = false;
     delay(500);
     servo2.detach();
     digitalWrite(MOSFET_3, LOW);
+    paraState = 'P';
     }
 }
 
@@ -390,9 +413,9 @@ void logTelemetryData() {
   sprintf(missionTime, "%02d:%02d:%02d.%02d", hours % 100, minutes % 60, seconds % 60, milliseconds);
 
   // Format and log telemetry data
-  sprintf(csvBuffer, "1008,%s,%u,%s,%c,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f\n", 
+  sprintf(csvBuffer, "1008,%s,%u,%s,%c,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%c\n", 
           missionTime, packetCount, swState, plState, heightAGLOversampled, temperature, voltage,
-          gyro_R, gyro_P, gyro_Y, x, y, z, heightOversampled);
+          gyro_R, gyro_P, gyro_Y, x, y, z, heightOversampled, velocity, maxSpeed, g, maxG, paraState);
 
   // Log to serial monitor
   Serial.println(csvBuffer);
@@ -481,3 +504,4 @@ void XBeeRecieve() {
     }
   }  
 }
+
