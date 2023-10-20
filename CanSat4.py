@@ -10,11 +10,15 @@ import serial
 import io
 
 t = []
-temp = []
 height = []
 roll = []
 pitch = []
 yaw = []
+x = []
+y = []
+z = []
+g = []
+
 
 class MyMainWindow(QMainWindow):
     def __init__(self):
@@ -39,9 +43,9 @@ class MyMainWindow(QMainWindow):
         main_layout.addWidget(title_widget)
         top_layout = QHBoxLayout(title_widget)
 
-        title = QLabel("Cansat")
-        title.setFont(font)
-        top_layout.addWidget(title)
+        self.title = QLabel("Cansat")
+        self.title.setFont(font)
+        top_layout.addWidget(self.title)
 
         self.blank =QLabel("")
         top_layout.addWidget(self.blank)
@@ -50,6 +54,63 @@ class MyMainWindow(QMainWindow):
         self.status.setFont(font)
         self.status.setAlignment(Qt.AlignmentFlag.AlignCenter)
         top_layout.addWidget(self.status)
+
+        # Create a widget for labels
+        label_widget = QWidget(main_widget)
+        main_layout.addWidget(label_widget)
+
+        # Create a horizontal layout for the labels
+        label_layout = QHBoxLayout(label_widget)
+
+        # Label for velocity
+        v = QLabel("Velocity (m/s):")
+        v.setFont(font)
+        label_layout.addWidget(v)
+
+        # Create a label to display the velocity
+        self.velocity_label = QLabel("0.0")
+        self.velocity_label.setFont(font)
+        label_layout.addWidget(self.velocity_label)
+
+        # Label for max speed
+        maxS = QLabel("Max Speed (m/s):")
+        maxS.setFont(font)
+        label_layout.addWidget(maxS)
+
+        # Create a label to display the max speed
+        self.maxS_label = QLabel("0.0")
+        self.maxS_label.setFont(font)
+        label_layout.addWidget(self.maxS_label)
+
+        # Label for acceleration
+        a = QLabel("Acceleration (g)):")
+        a.setFont(font)
+        label_layout.addWidget(a)
+
+        # Create a label to display the acceleration
+        self.acceleration_label = QLabel("0.0")
+        self.acceleration_label.setFont(font)
+        label_layout.addWidget(self.acceleration_label)
+
+        # Label for max acceleration
+        maxA = QLabel("Max Acceleration (g):")
+        maxA.setFont(font)
+        label_layout.addWidget(maxA)
+
+        # Create a label to display the max acceleration
+        self.maxA_label = QLabel("0.0")
+        self.maxA_label.setFont(font)
+        label_layout.addWidget(self.maxA_label)        
+
+        # Label for temp
+        temp = QLabel("Temperature (C):")
+        temp.setFont(font)
+        label_layout.addWidget(temp)
+
+        # Create a label to display the temperature
+        self.temp_label = QLabel("0.0")
+        self.temp_label.setFont(font)
+        label_layout.addWidget(self.temp_label)               
 
         # Create a widget for graphs
         graph_widget = QWidget(main_widget)
@@ -128,21 +189,34 @@ class MyMainWindow(QMainWindow):
                 for line in reader: 
                     time = self.convert_time(str(line[1]))
                     t.append(time)
-                    temp.append(float(line[6]))
                     height.append(float(line[5]))
                     roll.append(float(line[8]))
                     pitch.append(float(line[9]))
                     yaw.append(float(line[10]))
+                    x.append(float(line[11]))
+                    y.append(float(line[12]))
+                    z.append(float(line[13]))
+                    g.append(float(line[17]))
                     
                     if len(t) == 30:
                         del t[0]
-                        del temp[0]
                         del height[0]
                         del roll[0]
                         del pitch[0]
                         del yaw[0]
+                        del x[0]
+                        del y[0]
+                        del z[0]
+                        del g[0]
                     
-                    self.status.setText(f"Status: {line[3]}")
+                    battery = (float(line[7])/6)*100
+                    self.status.setText(f"Status: {line[3]}, Release: {line[4]}, Parachute: {line[19]}")
+                    self.velocity_label.setText(f"{line[15]}")
+                    self.temp_label.setText(f"{line[6]}")
+                    self.maxS_label.setText(f"{line[16]}")
+                    self.acceleration_label.setText(f"{line[17]}")
+                    self.maxA_label.setText(f"{line[18]}")
+                    self.title.setText(f"CanSat: {battery: .2f} percent battery")
                 
                 self.update_data_and_plots()
 
@@ -167,10 +241,14 @@ class MyMainWindow(QMainWindow):
         self.figure.clf()
         #Temperature
         ax = self.figure.add_subplot(131)
-        ax.plot(t, temp)
-        ax.set_title("Temperature")
+        ax.plot(t, x, 'r', label='X')
+        ax.plot(t, y, 'g', label='Y')
+        ax.plot(t, z, 'b', label='Z')
+        ax.plot(t, g, label ='g')
+        ax.legend(loc="upper left")
+        ax.set_title("Acceleration")
         ax.set_xlabel("Time (s)")
-        ax.set_ylabel("Temperature (°C)")
+        ax.set_ylabel("Acceleration (g)")
 
         #Height 
         ax = self.figure.add_subplot(132)
