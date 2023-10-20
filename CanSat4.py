@@ -4,6 +4,7 @@ from PyQt6.QtWidgets import QApplication, QPushButton, QMainWindow, QLabel, QLin
 from PyQt6.QtCore import QTimer, Qt
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
+from matplotlib.text import Annotation
 import csv
 import math
 import serial
@@ -83,7 +84,7 @@ class MyMainWindow(QMainWindow):
         label_layout.addWidget(self.maxS_label)
 
         # Label for acceleration
-        a = QLabel("Acceleration (g)):")
+        a = QLabel("Acceleration (g):")
         a.setFont(font)
         label_layout.addWidget(a)
 
@@ -256,6 +257,12 @@ class MyMainWindow(QMainWindow):
         ax.set_title("Height")
         ax.set_xlabel("Time (s)")
         ax.set_ylabel("Height (meters)")
+        
+        self.height_text = None
+
+        # Add height text annotation if there is data
+        if height:
+            self.height_text = ax.annotate(f"{height[-1]:.2f} m", (t[-1], height[-1]), fontsize=12)
 
         #Rotation
         ax = self.figure.add_subplot(133)
@@ -275,6 +282,9 @@ class MyMainWindow(QMainWindow):
     def update_data_and_plots(self):
         # Update data and graph 
         self.plot_graphs()
+        # Update height text annotation
+        self.height_text.set_text(f"Height: {height[-1]:.2f} m")
+        self.height_text.set_position((t[-1], height[-1]))
 
     def convert_time(self,time_str):
         # Extract hours
