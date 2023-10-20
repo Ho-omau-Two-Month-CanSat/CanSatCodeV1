@@ -5,6 +5,11 @@ Code for testing components
 
 UPDATES:
 
+10/20/23 (v10)
+
+- Flight Day Software
+- Added new variables for velocity, max Speed, acceleration, max acceleration for ground station use
+
 10/14/23 (V9)
 
 - Updated pin assignments to reflect correct pins as connected on PCB
